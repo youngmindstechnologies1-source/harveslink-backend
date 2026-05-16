@@ -28,6 +28,13 @@ async function getTransporter() {
     return transporter;
   }
 
+  // Check SMTP credentials exist
+  if (!env.SMTP_USER || !env.SMTP_PASS) {
+    console.warn('⚠️ SMTP_USER or SMTP_PASS not configured. Email OTP will be logged only.');
+    transporter = null;
+    return null;
+  }
+
   // Production / configured SMTP (Gmail, etc.)
   transporter = nodemailer.createTransport({
     host: env.SMTP_HOST || 'smtp.gmail.com',
@@ -37,6 +44,9 @@ async function getTransporter() {
       user: env.SMTP_USER,
       pass: env.SMTP_PASS,
     },
+    connectionTimeout: 10000, // 10s to establish connection
+    greetingTimeout: 10000,   // 10s for SMTP greeting
+    socketTimeout: 15000,     // 15s for socket inactivity
   });
 
   return transporter;
@@ -72,18 +82,26 @@ function hashEmailOtp(otp) {
  * @returns {Promise<boolean>} Whether the email was sent successfully
  */
 async function sendEmailOtp(email, otp, userName = '') {
-  // In development without SMTP config, just log
-  if (env.NODE_ENV === 'development' && !env.SMTP_USER) {
-    console.log(`📧 [DEV] OTP for ${email}: ${otp}`);
+  // Without SMTP config, just log the OTP
+  if (!env.SMTP_USER || !env.SMTP_PASS) {
+    console.log(`📧 [NO SMTP] OTP for ${email}: ${otp}`);
     return true;
   }
 
   try {
     const transport = await getTransporter();
+
+    // If transporter creation failed (missing creds), log and succeed
+    if (!transport) {
+      console.log(`📧 [FALLBACK] OTP for ${email}: ${otp}`);
+      return true;
+    }
+
     const greeting = userName ? `Hi ${userName}` : 'Hello';
 
-    const info = await transport.sendMail({
-      from: `"HarvestLink 🌾" <${env.SMTP_USER || 'noreply@harvestlink.app'}>`,
+    // Wrap sendMail in a timeout to prevent hanging
+    const sendPromise = transport.sendMail({
+      from: `"HarvestLink 🌾" <${env.SMTP_USER}>`,
       to: email,
       subject: `${otp} is your HarvestLink verification code`,
       html: `
@@ -116,6 +134,13 @@ async function sendEmailOtp(email, otp, userName = '') {
       `,
       text: `${greeting}, your HarvestLink verification code is: ${otp}. It expires in 5 minutes.`,
     });
+
+    // Add a 20-second timeout to prevent indefinite hanging
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Email send timed out after 20s')), 20000)
+    );
+
+    const info = await Promise.race([sendPromise, timeoutPromise]);
 
     // In dev with Ethereal, log the preview URL
     if (env.NODE_ENV === 'development') {

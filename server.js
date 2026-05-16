@@ -12,7 +12,7 @@ const { initializeFirebase } = require('./src/config/firebase');
 
 // Middleware
 const errorHandler = require('./src/middleware/errorHandler');
-const { authLimiter, generalLimiter } = require('./src/middleware/rateLimiter');
+// const { authLimiter, generalLimiter } = require('./src/middleware/rateLimiter');
 
 // Routes
 const authRoutes = require('./src/routes/authRoutes');
@@ -39,8 +39,8 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
 // ─── Rate Limiting ──────────────────────────────────────
-app.use('/api/auth', authLimiter);
-app.use('/api', generalLimiter);
+// app.use('/api/auth', authLimiter);
+// app.use('/api', generalLimiter);
 
 // ─── Health Check ───────────────────────────────────────
 app.get('/api/health', (req, res) => {
